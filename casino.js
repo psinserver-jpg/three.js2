@@ -884,7 +884,7 @@ function makeBaccarat(G) {
     if (!panel) return; panel.querySelectorAll('button').forEach(b => { if (b.dataset.act) b.disabled = busy; }); bets.paint(panel); drawPanelRoads();
     hint(busy ? '딜러가 카드를 오픈합니다… (자동 진행)' : bets.total ? `총 ${fmt(bets.total)} 베팅 — 모두 걸었으면 DEAL! 카드는 정식 룰대로 자동 진행됩니다` : 'PLAYER / BANKER / TIE 중 맞힐 곳을 눌러 베팅하세요 (페어는 선택)');
   }
-  const view = viewOf(G, [0, 11.5, 8.6], [0, 1.2, 0.2]);
+  const view = viewOf(G, [0, 13.5, 13.5], [0, 1.0, 2.9]);
   const sp = (k, a, b, style) => spot(k, `${a}<br><small>${b}</small>`, '', style);
   return {
     id: 'baccarat', name: '바카라', icon: '♦️', desc: '실제 카지노 방식 · 구슬판/대로 · 페어', view, group: G,
