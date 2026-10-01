@@ -786,7 +786,7 @@ function makeVideoPoker(G) {
     bc.needsUpdate = true;
   }
   drawPay(null);
-  const board = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 2.75), new THREE.MeshBasicMaterial({ map: bc })); board.position.set(0, 3.0, -2.45); board.rotation.x = -.18; G.add(board);
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 2.75), new THREE.MeshBasicMaterial({ map: bc })); board.position.set(0, 3.0, -2.4); G.add(board);
   box(G, 4.7, 3.05, .15, 0, 3.0, -2.55, mat(0x8a2a9a, .3, .6));
   box(G, .2, 1.6, .2, -2.2, 1.8, -2.5, mat(0x8a2a9a, .3, .6)); box(G, .2, 1.6, .2, 2.2, 1.8, -2.5, mat(0x8a2a9a, .3, .6));
   const SHOE = V(0, 3, -1.8);
