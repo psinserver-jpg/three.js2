@@ -447,6 +447,7 @@ function makeSlots(G) {
   function sync() {
     if (!panel) return;
     $('#sBet', panel).textContent = fmt(bet);
+    hint(busy ? '릴이 돌아가는 중… 결과를 기다리세요 🎰' : bet < 10 ? '＋ 버튼으로 베팅액을 올려주세요 (최소 10)' : `① 칩 단위 선택 → ② ＋/－로 베팅액(${fmt(bet)}) 조절 → ③ SPIN 버튼!`);
     panel.querySelectorAll('button').forEach(b => { if (b.dataset.act) b.disabled = busy; });
   }
   return {
@@ -502,6 +503,7 @@ function makeBlackjack(G) {
     q('deal').disabled = !inBet; q('hit').disabled = !inPlay; q('stand').disabled = !inPlay;
     q('double').disabled = !inPlay || player.length !== 2 || wagered > state.bal;
     stack.set(phase === 'bet' ? bet : wagered);
+    hint(busy ? '카드를 나누는 중…' : phase === 'bet' ? (bet < 10 ? '＋ 버튼으로 베팅하세요 (최소 10)' : '베팅 완료! DEAL 버튼을 눌러 시작하세요') : `내 합계 ${val(player)} — 21에 가까우면 이겨요. 더 받으려면 HIT, 그만하려면 STAND`);
   }
   async function deal() {
     if (busy || phase !== 'bet') return;
@@ -614,7 +616,7 @@ function makeRoulette(G) {
   for (let i = 0; i < 4; i++) { const sp = new THREE.Mesh(new THREE.BoxGeometry(1.7, .06, .08), gold); sp.position.y = .55; sp.rotation.y = i * Math.PI / 4; spin.add(sp); }
   const ball = new THREE.Mesh(new THREE.SphereGeometry(.1, 16, 16), mat(0xffffff, .1, .1, 0x888888)); wheel.add(ball);
   const WSPD = .45; let W = 0, gam = 0, ballR = 2.45, ballY = .15, ballIdx = 0, ballFollow = true, busy = false, panel;
-  const hist = []; const bets = new Bets(() => panel && bets.paint(panel));
+  const hist = []; const bets = new Bets(() => panel && sync());
 
   async function doSpin() {
     if (busy) return; if (!bets.total) return toast('칩을 먼저 놓아주세요', 'bad');
@@ -647,7 +649,10 @@ function makeRoulette(G) {
     const bg = { red: '#c01028', black: '#222', zero: '#0c8a44' };
     h.innerHTML = hist.map(n => `<i style="background:${bg[rouColor(n)]}">${n}</i>`).join('');
   }
-  function sync() { if (!panel) return; panel.querySelectorAll('button').forEach(b => { if (b.dataset.act) b.disabled = busy; }); bets.paint(panel); }
+  function sync() {
+    if (!panel) return; panel.querySelectorAll('button').forEach(b => { if (b.dataset.act) b.disabled = busy; }); bets.paint(panel);
+    hint(busy ? '공이 굴러가는 중… 🎡' : bets.total ? `총 ${fmt(bets.total)} 베팅 중 — 더 걸거나 SPIN을 누르세요` : '① 칩 선택 → ② 숫자·색 칸을 눌러 칩 올리기 → ③ SPIN');
+  }
 
   let grid = '';
   for (let n = 1; n <= 36; n++) grid += spot('n' + n, n, rouColor(n), `grid-row:${3 - (n - 1) % 3};grid-column:${Math.ceil(n / 3) + 1}`);
@@ -685,7 +690,7 @@ function makeBaccarat(G) {
   const lp = flatLabel('PLAYER', 4, 1, '#6db8ff', 70), lb = flatLabel('BANKER', 4, 1, '#ff7b8e', 70), lt = flatLabel('TIE 8:1', 3, .8, '#7dffa8', 56);
   lp.position.set(-2.6, 1.115, .45); lb.position.set(2.6, 1.115, .45); lt.position.set(0, 1.115, .45); G.add(lp, lb, lt);
   const stacks = { P: chipStack(G, -2.6, 1.7), T: chipStack(G, 0, 1.7), B: chipStack(G, 2.6, 1.7) };
-  const bets = new Bets(() => { if (!panel) return; bets.paint(panel); for (const k in stacks) stacks[k].set(bets.m[k] || 0); });
+  const bets = new Bets(() => { if (!panel) return; sync(); for (const k in stacks) stacks[k].set(bets.m[k] || 0); });
   const SHOE = V(5, 2.2, -1.7);
   let shoe = newDeck(8), meshes = [], busy = false, panel; const hist = [];
   const cv = c => c.r === 'A' ? 1 : c.r === '10' || 'JQK'.includes(c.r) ? 0 : +c.r;
@@ -735,7 +740,10 @@ function makeBaccarat(G) {
     const h = $('#bcH', panel); if (!h) return; const c = { P: '#2f7fe0', B: '#d6362f', T: '#1fb866' };
     h.innerHTML = hist.map(x => `<i style="background:${c[x]}">${x}</i>`).join('');
   }
-  function sync() { if (!panel) return; panel.querySelectorAll('button').forEach(b => { if (b.dataset.act) b.disabled = busy; }); bets.paint(panel); }
+  function sync() {
+    if (!panel) return; panel.querySelectorAll('button').forEach(b => { if (b.dataset.act) b.disabled = busy; }); bets.paint(panel);
+    hint(busy ? '카드가 자동으로 나눠집니다…' : bets.total ? `총 ${fmt(bets.total)} 베팅 중 — DEAL을 누르세요` : 'PLAYER·BANKER·TIE 중 이길 것 같은 쪽을 눌러 베팅하세요');
+  }
   const view = viewOf(G, [0, 5.6, 7.2], [0, .6, -.2]);
   return {
     id: 'baccarat', name: '바카라', icon: '♦️', desc: '플레이어 · 뱅커 · 타이', view, group: G,
@@ -798,6 +806,7 @@ function makeVideoPoker(G) {
     const q = a => panel.querySelector(`[data-act=${a}]`), inBet = phase === 'bet' && !busy;
     ['minus', 'plus', 'max'].forEach(a => q(a).disabled = !inBet); q('deal').disabled = !inBet; q('draw').disabled = phase !== 'hold' || busy;
     for (let i = 0; i < 5; i++) { const b = panel.querySelector(`[data-h="${i}"]`); b.disabled = phase !== 'hold' || busy; b.classList.toggle('on', held[i]); b.textContent = held[i] ? 'HOLD' : '홀드 ' + (i + 1); }
+    hint(busy ? '카드를 나누는 중…' : phase === 'hold' ? '남기고 싶은 카드를 클릭(HOLD)한 뒤 DRAW를 누르세요. 나머지는 새 카드로 바뀝니다' : '베팅액을 정하고 DEAL을 눌러 카드 5장을 받으세요');
   }
   async function deal() {
     if (busy || phase !== 'bet') return; if (bet < 10) return toast('최소 베팅은 10입니다', 'bad'); if (bet > state.bal) return toast('칩이 부족합니다', 'bad');
@@ -861,7 +870,7 @@ function makeSicBo(G) {
   const l2 = flatLabel('BIG 11-17  大', 5, 1, '#ffffffbb', 50); l2.position.set(3.6, 1.115, 1.7); G.add(l2);
   const SZ = .9, dice = [];
   for (let i = 0; i < 3; i++) { const d = new THREE.Mesh(new THREE.BoxGeometry(SZ, SZ, SZ), dieMats); d.position.set((i - 1) * 1.3, 1.13 + SZ / 2, -.3); G.add(d); dice.push(d); }
-  const bets = new Bets(() => panel && bets.paint(panel));
+  const bets = new Bets(() => panel && sync());
   let busy = false, panel; const hist = [];
   async function roll() {
     if (busy) return; if (!bets.total) return toast('칩을 먼저 놓아주세요', 'bad');
@@ -892,7 +901,10 @@ function makeSicBo(G) {
     bets.end(); busy = false; sync();
   }
   function drawHist() { const h = $('#sH', panel); if (h) h.innerHTML = hist.map(x => `<i style="background:#444;width:46px;border-radius:12px">${x}</i>`).join(''); }
-  function sync() { if (!panel) return; panel.querySelectorAll('button').forEach(b => { if (b.dataset.act) b.disabled = busy; }); bets.paint(panel); }
+  function sync() {
+    if (!panel) return; panel.querySelectorAll('button').forEach(b => { if (b.dataset.act) b.disabled = busy; }); bets.paint(panel);
+    hint(busy ? '주사위가 굴러가는 중… 🎲' : bets.total ? `총 ${fmt(bets.total)} 베팅 중 — ROLL을 누르세요` : '가장 쉬운 베팅: 소(합 4~10) 또는 대(합 11~17)를 눌러보세요');
+  }
   const totals = Object.keys(SIC_TOTAL).map(t => spot('t' + t, `${t}<br><small>${SIC_TOTAL[t]}:1</small>`, '', 'padding:4px')).join('');
   const singles = [1, 2, 3, 4, 5, 6].map(n => spot('d' + n, `⚀ 단일 ${n}`.replace('⚀', ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'][n - 1]), '', 'font-size:15px')).join('');
   const view = viewOf(G, [0, 5.6, 7.0], [0, .6, -.2]);
@@ -916,6 +928,39 @@ function makeSicBo(G) {
   };
 }
 
+
+const HELP = {
+  slots: { lv: '⭐ 가장 쉬움', goal: '그림 3개가 같게 나오면 베팅한 칩의 몇 배를 받아요.',
+    steps: ['아래 동그란 칩(10~1000) 중 하나를 눌러 단위를 고르세요.', '＋ / － 버튼으로 이번 판 베팅액을 정하세요.', 'SPIN 버튼을 누르면 릴이 돌아가요!'],
+    tip: '가운데 빨간 줄에 보이는 그림 3개로 결정돼요.<br>🍒🍒🍒 5배 · 🍋🍋🍋 8배 · 🔔🔔🔔 15배 · ⭐⭐⭐ 25배 · 7️⃣7️⃣7️⃣ 50배 · 💎💎💎 100배 · 🍒 2개 2배 · 나머지는 꽝' },
+  blackjack: { lv: '⭐⭐ 쉬움', goal: '카드 합계를 21에 더 가깝게 만들어 딜러를 이기세요. 21을 넘으면(버스트) 바로 져요.',
+    steps: ['베팅액을 정하고 DEAL을 눌러 카드를 받으세요.', '내 카드 합계를 보고 HIT(한 장 더) 또는 STAND(멈추기)를 고르세요.', '내가 멈추면 딜러가 17 이상이 될 때까지 카드를 받고, 합계가 더 큰 쪽이 이겨요.'],
+    tip: '숫자 카드는 숫자 그대로, J·Q·K는 10, A는 1 또는 11(유리한 쪽)이에요.<br>첫 두 장이 A+10점 카드(블랙잭)면 베팅의 1.5배를 더 받아요. DOUBLE은 베팅을 2배로 올리고 딱 한 장만 더 받는 선택이에요.' },
+  roulette: { lv: '⭐ 쉬움', goal: '공이 어느 칸에 들어갈지 맞히세요. 여러 칸에 동시에 걸어도 돼요.',
+    steps: ['아래 동그란 칩을 눌러 한 번에 놓을 금액을 고르세요.', '숫자 칸이나 빨강/검정, 홀수/짝수 칸을 눌러 칩을 올려놓으세요.', 'SPIN을 누르면 공이 굴러가고, 맞힌 칸의 배당을 받아요.'],
+    tip: '쉬운 베팅: 빨강/검정, 홀수/짝수, 1-18/19-36 은 맞히면 2배(확률 약 49%)예요.<br>숫자 하나는 36배지만 확률이 낮아요. 초록 0이 나오면 숫자 베팅 외에는 모두 져요.' },
+  baccarat: { lv: '⭐ 쉬움', goal: 'PLAYER와 BANKER 중 카드 합계(끝자리)가 9에 더 가까운 쪽을 맞히세요.',
+    steps: ['칩을 고른 뒤 PLAYER, BANKER, TIE 중 하나를 눌러 베팅하세요.', 'DEAL을 누르면 카드가 자동으로 나눠져요. (내가 할 일은 없어요)', '맞힌 쪽의 배당을 받아요.'],
+    tip: '합계는 끝자리만 봐요 (7+8=15 → 5점). A=1점, 10·J·Q·K=0점이에요.<br>PLAYER 1배, BANKER 0.95배(수수료 5%), TIE 8배. 비기면 PLAYER/BANKER 베팅은 돌려받아요.' },
+  poker: { lv: '⭐⭐ 보통', goal: '카드 5장으로 족보를 만드세요. 잭(J) 이상 원페어부터 돈을 받아요.',
+    steps: ['베팅액을 정하고 DEAL을 눌러 카드 5장을 받으세요.', '남기고 싶은 카드를 HOLD 버튼(또는 카드를 직접 클릭)으로 선택하세요.', 'DRAW를 누르면 HOLD 안 한 카드만 새로 바뀌고 족보가 계산돼요.'],
+    tip: '같은 숫자가 있는 카드, 같은 무늬 5장, 이어지는 숫자는 남기는 게 좋아요.<br>족보 높은 순: 로열플러시 800배 · 스플 50 · 포카드 25 · 풀하우스 9 · 플러시 6 · 스트레이트 4 · 트리플 3 · 투페어 2 · 잭 이상 원페어 1배' },
+  sicbo: { lv: '⭐⭐ 보통', goal: '주사위 3개의 결과를 예측하세요. 합계가 큰지(대) 작은지(소)만 맞혀도 돼요.',
+    steps: ['칩을 고른 뒤 소(4~10) 또는 대(11~17) 같은 칸을 눌러 베팅하세요.', 'ROLL을 누르면 주사위가 굴러가요.', '맞힌 칸의 배당을 받아요.'],
+    tip: '가장 쉬운 건 소/대(1배)예요. 단일 숫자는 그 숫자가 나온 주사위 개수만큼 배당을 줘요.<br>3개가 모두 같은 숫자(트리플)면 소/대는 모두 지고, "올 트리플"에 걸었다면 30배예요.' },
+};
+let hintTimer;
+const hint = t => { const e = $('#hint'); if (e) e.textContent = t || ''; };
+function showHelp(id, first) {
+  const g = HELP[id]; if (!g) return;
+  $('#helpT').textContent = `${games[id].icon} ${games[id].name} 하는 법`;
+  $('#helpB').innerHTML = `<div class="goal">🎯 <b>목표</b> — ${g.goal}</div><ol>${g.steps.map(x => `<li>${x}</li>`).join('')}</ol><div class="tip">💡 ${g.tip}</div>`;
+  $('#helpOk').textContent = first ? '알겠어요, 시작!' : '닫기';
+  $('#help').style.display = 'flex';
+}
+$('#helpOk').onclick = () => $('#help').style.display = 'none';
+$('#help').addEventListener('pointerdown', e => { if (e.target.id === 'help') $('#help').style.display = 'none'; });
+
 /* =====================================================================
  *  게임 등록 / 화면 전환
  * ===================================================================== */
@@ -928,7 +973,7 @@ const camPos = camera.position.clone(), look = V(0, 2, R), camGoal = V(0, 4, 0),
 let lobbyYaw = 0, hoverYaw = null;
 const stationAngle = id => Math.atan2(games[id].group.position.x, games[id].group.position.z);
 
-$('#menu').innerHTML = Object.values(games).map(g => `<button data-g="${g.id}"><span class="ic">${g.icon}</span><b>${g.name}</b><span class="d">${g.desc}</span></button>`).join('');
+$('#menu').innerHTML = Object.values(games).map(g => `<button data-g="${g.id}"><span class="ic">${g.icon}</span><b>${g.name}</b><span class="d">${g.desc}</span><span class="lv">${HELP[g.id].lv}</span></button>`).join('');
 $('#chips').innerHTML = CHIPS.map(([v, c]) => `<button class="chip${v === state.chip ? ' sel' : ''}" data-chip="${v}" style="background:${c}">${v}</button>`).join('');
 
 function enter(id) {
@@ -937,6 +982,9 @@ function enter(id) {
   $('#lobby').style.display = 'none'; $('#game').style.display = 'flex'; $('#btnLobby').style.display = '';
   const p = $('#panel'); p.innerHTML = g.html(); g.bind(p);
   camGoal.copy(g.view.pos); lookGoal.copy(g.view.look);
+  $('#btnHelp').style.display = '';
+  let seen = false; try { seen = localStorage.getItem('help_' + id); localStorage.setItem('help_' + id, '1'); } catch {}
+  if (!seen) showHelp(id, true);
 }
 function leave() {
   const g = state.game;
@@ -944,12 +992,13 @@ function leave() {
   if (g && g.clearBets) g.clearBets();
   if (g && g.pending() > 0) toast('진행 중이던 베팅은 반환되었습니다');
   state.game = null; $('#panel').innerHTML = '';
-  $('#lobby').style.display = 'block'; $('#game').style.display = 'none'; $('#btnLobby').style.display = 'none';
+  $('#lobby').style.display = 'block'; $('#game').style.display = 'none'; $('#btnLobby').style.display = 'none'; $('#btnHelp').style.display = 'none'; $('#help').style.display = 'none'; hint('');
 }
 $('#menu').addEventListener('click', e => { const b = e.target.closest('[data-g]'); if (b) enter(b.dataset.g); });
 $('#menu').addEventListener('pointerover', e => { const b = e.target.closest('[data-g]'); hoverYaw = b ? stationAngle(b.dataset.g) : null; });
 $('#menu').addEventListener('pointerleave', () => hoverYaw = null);
 $('#btnLobby').onclick = leave;
+$('#btnHelp').onclick = () => state.game && showHelp(state.game.id, false);
 $('#btnSound').onclick = e => { state.sound = !state.sound; e.target.textContent = state.sound ? '🔊' : '🔇'; };
 $('#btnReset').onclick = () => { if (state.game && state.game.busy()) return toast('게임이 진행 중입니다', 'bad'); if (confirm('보유 칩을 기본금 1,000으로 초기화할까요?')) { if (state.game?.clearBets) state.game.clearBets(); state.bal = START; save(); toast('기본금 1,000으로 초기화했습니다'); } };
 $('#btnRefill').onclick = () => { state.bal = START; save(); toast('기본금 1,000 지급! 행운을 빕니다 🍀', 'win'); };

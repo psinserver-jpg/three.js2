@@ -58,6 +58,16 @@ button.danger{background:#7a1a2c}
 .hist i{font-style:normal;width:24px;height:24px;border-radius:50%;font-size:11px;line-height:24px;text-align:center;font-weight:700}
 .hold{min-width:60px}.hold.on{background:var(--gold);color:#2b1700;font-weight:800}
 .dealerp{font-size:15px;font-weight:700}
+#hint{background:#1d3b8f;border:1px solid #7fb0ff;border-radius:12px;padding:8px 16px;font-size:15px;font-weight:700;text-align:center;max-width:min(1000px,100%);box-shadow:0 4px 14px #0008}
+#hint:empty{display:none}
+#help{position:fixed;inset:0;background:#000a;z-index:15;display:none;align-items:center;justify-content:center;padding:14px}
+#help .card{background:#1a1030;border:2px solid var(--gold);border-radius:18px;padding:20px 24px;max-width:560px;max-height:88vh;overflow:auto;box-shadow:0 0 40px #ffb30055}
+#help h2{margin:0 0 10px;color:var(--gold);font-size:24px}
+#help .goal{background:#2a1a46;border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:16px}
+#help ol{margin:6px 0 10px;padding-left:22px;line-height:1.7;font-size:15px}
+#help .tip{color:#fffc;font-size:13.5px;line-height:1.6;margin-bottom:12px}
+#help button{width:100%;font-size:17px;padding:12px}
+#menu .lv{font-size:11px;color:#7dffa8;font-weight:700}
 @media(max-width:640px){#bal{font-size:17px;padding:6px 10px}.chip{width:40px;height:40px}#panel{max-height:50vh}button{padding:8px 10px}}
 </style>
 <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
@@ -66,6 +76,7 @@ button.danger{background:#7a1a2c}
 <div id="hud">
   <div id="bal"><small>보유 칩</small><span id="balv">0</span></div>
   <div id="hudR">
+    <button id="btnHelp" style="display:none">❓ 게임 방법</button>
     <button id="btnLobby" style="display:none">🏛 로비</button>
     <button id="btnSound">🔊</button>
     <button id="btnReset" title="기본금 1,000으로 처음부터">↺ 리셋</button>
@@ -73,13 +84,15 @@ button.danger{background:#7a1a2c}
 </div>
 <div id="lobby">
   <h1>🎰 3D CASINO 🎰</h1>
-  <p>모든 칩은 가상 머니입니다 · 기본금 1,000으로 시작해서 최대한 불려보세요</p>
+  <p>가상 칩 1,000개로 시작해서 최대한 불려보세요 (진짜 돈이 아니에요)<br><b style="color:#7dffa8">처음이라면 ⭐ 슬롯머신을 추천해요!</b> 게임에 들어가면 설명이 먼저 나옵니다.</p>
   <div id="menu"></div>
 </div>
 <div id="game">
+  <div id="hint"></div>
   <div id="chips"></div>
   <div id="panel"></div>
 </div>
+<div id="help"><div class="card"><h2 id="helpT"></h2><div id="helpB"></div><button class="primary" id="helpOk">알겠어요, 시작!</button></div></div>
 <div id="toast"></div>
 <div id="flash"></div>
 <div id="broke"><h2>💸 파산!</h2><p>칩을 모두 잃었습니다. 기본금으로 다시 도전하시겠습니까?</p><button class="primary" id="btnRefill">기본금 1,000 받고 재도전</button></div>
