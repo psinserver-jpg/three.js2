@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>3D 카지노</title>
+<style>
+:root{--gold:#ffd24a;--gold2:#ffb300;--bg:#0b0612;--panel:rgba(18,10,30,.88);--red:#e0314b;--green:#1fb866;--line:rgba(255,210,74,.35)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:#fff;font-family:"Pretendard","Noto Sans KR","Malgun Gothic",system-ui,sans-serif;user-select:none}
+canvas{display:block;position:fixed;inset:0;width:100%;height:100%}
+button{font:inherit;color:#fff;cursor:pointer;border:1px solid var(--line);background:#2a1a46;border-radius:10px;padding:9px 14px;transition:.15s}
+button:hover:not(:disabled){background:#3b2563;transform:translateY(-1px)}
+button:disabled{opacity:.35;cursor:not-allowed}
+button.primary{background:linear-gradient(#ffd24a,#ff9d00);color:#2b1700;font-weight:800;border-color:#fff3;box-shadow:0 0 14px #ffb30066}
+button.primary:hover:not(:disabled){background:linear-gradient(#ffe27a,#ffad20)}
+button.danger{background:#7a1a2c}
+#hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:10px 14px;gap:8px;pointer-events:none;z-index:5}
+#hud>*{pointer-events:auto}
+#bal{background:var(--panel);border:1px solid var(--gold);border-radius:14px;padding:8px 16px;font-size:22px;font-weight:800;color:var(--gold);box-shadow:0 0 18px #ffb30044;white-space:nowrap}
+#bal small{font-size:12px;color:#fff9;font-weight:500;margin-right:6px}
+#hudR{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+#lobby{position:fixed;left:0;right:0;bottom:0;padding:14px;z-index:4;display:none}
+#lobby h1{margin:0 0 4px;text-align:center;font-size:clamp(22px,4vw,38px);letter-spacing:2px;color:var(--gold);text-shadow:0 0 18px #ffb300aa}
+#lobby p{margin:0 0 12px;text-align:center;color:#fffa;font-size:14px}
+#menu{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;max-width:1000px;margin:0 auto}
+#menu button{display:flex;flex-direction:column;align-items:center;gap:3px;padding:12px 8px;background:var(--panel);border-radius:14px}
+#menu .ic{font-size:30px}#menu b{font-size:16px;color:var(--gold)}#menu span.d{font-size:11px;color:#fffb}
+#game{position:fixed;left:0;right:0;bottom:0;z-index:4;display:none;flex-direction:column;align-items:center;gap:8px;padding:0 10px 10px;pointer-events:none}
+#game>*{pointer-events:auto}
+#chips{display:flex;gap:8px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:40px;padding:6px 12px}
+.chip{width:46px;height:46px;border-radius:50%;padding:0;font-weight:800;font-size:12px;border:4px dashed #fff9;box-shadow:0 3px 6px #0008, inset 0 0 0 3px #0003;position:relative}
+.chip.sel{transform:translateY(-6px) scale(1.12);box-shadow:0 0 16px #fff,0 6px 8px #0008}
+#panel{width:min(1000px,100%);max-height:46vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px 14px;backdrop-filter:blur(6px)}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;margin:6px 0}
+.row .val{font-size:20px;font-weight:800;color:var(--gold);min-width:90px;text-align:center}
+.info{text-align:center;color:#fffc;font-size:14px;min-height:20px}
+.title{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.title b{color:var(--gold);font-size:16px}
+.pay{font-size:11.5px;color:#fffa;text-align:center;line-height:1.5}
+#toast{position:fixed;top:78px;left:50%;transform:translate(-50%,-20px);background:#000c;border:1px solid var(--gold);padding:10px 22px;border-radius:30px;font-size:18px;font-weight:700;opacity:0;pointer-events:none;transition:.3s;z-index:9;white-space:nowrap;max-width:94vw;overflow:hidden;text-overflow:ellipsis}
+#toast.show{opacity:1;transform:translate(-50%,0)}#toast.win{color:#7dffa8;border-color:#7dffa8}#toast.bad{color:#ff8a98;border-color:#ff8a98}
+#flash{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);font-size:clamp(44px,10vw,110px);font-weight:900;color:var(--gold);text-shadow:0 0 30px #ff9d00,0 4px 0 #7a4a00;pointer-events:none;z-index:8;opacity:0}
+#flash.go{animation:fl 1.8s ease-out}
+@keyframes fl{0%{opacity:0;transform:translate(-50%,-30%) scale(.4)}15%{opacity:1;transform:translate(-50%,-50%) scale(1.15)}30%{transform:translate(-50%,-50%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-90%) scale(1)}}
+#broke{position:fixed;inset:0;background:#000b;z-index:20;display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;text-align:center}
+#broke h2{margin:0;font-size:34px;color:var(--red)}
+.spot{position:relative;border-radius:8px;padding:6px 4px;text-align:center;font-weight:700;border:1px solid #fff4;background:#0c5a33;min-width:0}
+.spot:hover{filter:brightness(1.3)}
+.spot.red{background:#b3122b}.spot.black{background:#17131c}.spot.zero{background:#0c7a3e}
+.spot.hit{outline:3px solid var(--gold);box-shadow:0 0 14px var(--gold);animation:pulse .6s infinite alternate}
+@keyframes pulse{to{filter:brightness(1.7)}}
+.bd{position:absolute;right:-4px;top:-8px;min-width:22px;height:22px;border-radius:11px;background:var(--gold);color:#2b1700;font-size:11px;line-height:22px;padding:0 5px;font-weight:800;display:none;z-index:2;box-shadow:0 2px 4px #0008}
+.bd.on{display:block}
+.rgrid{display:grid;grid-template-columns:.7fr repeat(12,1fr) .8fr;gap:3px;font-size:13px}
+.sgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;font-size:13px}
+.hist{display:flex;gap:4px;flex-wrap:wrap;justify-content:center}
+.hist i{font-style:normal;width:24px;height:24px;border-radius:50%;font-size:11px;line-height:24px;text-align:center;font-weight:700}
+.hold{min-width:60px}.hold.on{background:var(--gold);color:#2b1700;font-weight:800}
+.dealerp{font-size:15px;font-weight:700}
+@media(max-width:640px){#bal{font-size:17px;padding:6px 10px}.chip{width:40px;height:40px}#panel{max-height:50vh}button{padding:8px 10px}}
+</style>
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+</head>
+<body>
+<div id="hud">
+  <div id="bal"><small>보유 칩</small><span id="balv">0</span></div>
+  <div id="hudR">
+    <button id="btnLobby" style="display:none">🏛 로비</button>
+    <button id="btnSound">🔊</button>
+    <button id="btnReset" title="기본금 1,000으로 처음부터">↺ 리셋</button>
+  </div>
+</div>
+<div id="lobby">
+  <h1>🎰 3D CASINO 🎰</h1>
+  <p>모든 칩은 가상 머니입니다 · 기본금 1,000으로 시작해서 최대한 불려보세요</p>
+  <div id="menu"></div>
+</div>
+<div id="game">
+  <div id="chips"></div>
+  <div id="panel"></div>
+</div>
+<div id="toast"></div>
+<div id="flash"></div>
+<div id="broke"><h2>💸 파산!</h2><p>칩을 모두 잃었습니다. 기본금으로 다시 도전하시겠습니까?</p><button class="primary" id="btnRefill">기본금 1,000 받고 재도전</button></div>
+<script type="module" src="./casino.js"></script>
+</body>
+</html>
