@@ -323,6 +323,7 @@ class Bets {
   add(k) {
     if (this.locked) return false;
     if (state.bal < state.chip) { toast('칩이 부족합니다', 'bad'); return false; }
+    if (this.limit && (this.m[k] || 0) + state.chip > this.limit(k)) { toast(`이 칸의 최대 베팅은 ${fmt(this.limit(k))}입니다`, 'bad'); return false; }
     addBal(-state.chip); this.m[k] = (this.m[k] || 0) + state.chip; this.stack.push([k, state.chip]); sfx.chip(); this.onChange(); return true;
   }
   undo() {
@@ -682,84 +683,227 @@ function makeRoulette(G) {
 }
 
 /* =====================================================================
- *  4) 바카라
+ *  4) 바카라 (실제 카지노 스타일: 반원 테이블, 딜러, 슈, 번 카드, 스퀴즈, 구슬판/대로, 페어 사이드벳)
  * ===================================================================== */
+function drawRoads(g, w, h, hist) {
+  g.fillStyle = '#f6f2e6'; g.fillRect(0, 0, w, h);
+  const cell = h / 6, half = Math.floor(w / 2);
+  g.strokeStyle = '#cfc8b0'; g.lineWidth = 1;
+  for (let x = 0; x <= w; x += cell) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
+  for (let y = 0; y <= h; y += cell) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
+  g.strokeStyle = '#7a6a3a'; g.lineWidth = 3; g.beginPath(); g.moveTo(half, 0); g.lineTo(half, h); g.stroke();
+  const col = { P: '#1d5fd1', B: '#d11f2f', T: '#12994f' };
+  const dot = (x, y, r, c) => { g.fillStyle = c; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); };
+  // 구슬판(Bead plate): 위→아래, 왼→오른
+  const visB = Math.floor(half / cell), totB = Math.ceil(hist.length / 6), offB = Math.max(0, totB - visB);
+  hist.forEach((r, i) => {
+    const c = Math.floor(i / 6) - offB; if (c < 0) return;
+    const x = c * cell + cell / 2, y = (i % 6) * cell + cell / 2;
+    dot(x, y, cell * .4, col[r.w]); g.fillStyle = '#fff'; g.font = `800 ${cell * .46}px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(r.w, x, y + 1);
+    if (r.bp) dot(x - cell * .3, y - cell * .3, cell * .1, '#ff2a2a'); if (r.pp) dot(x + cell * .3, y + cell * .3, cell * .1, '#2a6bff');
+  });
+  // 대로(Big road)
+  const occ = new Set(), cells = []; let sc = -1, c = 0, r = 0, tail = false, last = null;
+  for (const h2 of hist) {
+    if (h2.w === 'T') { if (cells.length) cells[cells.length - 1].t++; continue; }
+    if (h2.w !== last) { sc++; c = sc; r = 0; tail = false; }
+    else if (!tail && r < 5 && !occ.has((r + 1) + ',' + c)) r++; else { tail = true; c++; }
+    occ.add(r + ',' + c); cells.push({ c, r, w: h2.w, t: 0, pp: h2.pp, bp: h2.bp }); last = h2.w;
+  }
+  const maxC = cells.reduce((m, q) => Math.max(m, q.c), 0), visR = Math.floor((w - half) / cell), offR = Math.max(0, maxC - visR + 1);
+  for (const q of cells) {
+    const cc = q.c - offR; if (cc < 0) continue;
+    const x = half + cc * cell + cell / 2, y = q.r * cell + cell / 2;
+    g.strokeStyle = col[q.w]; g.lineWidth = cell * .13; g.beginPath(); g.arc(x, y, cell * .33, 0, 7); g.stroke();
+    if (q.t) { g.strokeStyle = col.T; g.lineWidth = 3; g.beginPath(); g.moveTo(x - cell * .32, y + cell * .32); g.lineTo(x + cell * .32, y - cell * .32); g.stroke(); }
+    if (q.bp) dot(x - cell * .3, y - cell * .3, cell * .1, '#ff2a2a'); if (q.pp) dot(x + cell * .3, y + cell * .3, cell * .1, '#2a6bff');
+  }
+  g.fillStyle = '#7a6a3a99'; g.font = `700 ${cell * .3}px ${FONT}`; g.textAlign = 'left'; g.textBaseline = 'top';
+  g.fillText('구슬판', 4, 2); g.fillText('대로', half + 4, 2);
+}
+
 function makeBaccarat(G) {
-  pedestalTable(G, 12, 5.5, 0x0a5c4a);
-  shoeMesh(G, 5.0, -1.7);
-  const lp = flatLabel('PLAYER', 4, 1, '#6db8ff', 70), lb = flatLabel('BANKER', 4, 1, '#ff7b8e', 70), lt = flatLabel('TIE 8:1', 3, .8, '#7dffa8', 56);
-  lp.position.set(-2.6, 1.115, .45); lb.position.set(2.6, 1.115, .45); lt.position.set(0, 1.115, .45); G.add(lp, lb, lt);
-  const stacks = { P: chipStack(G, -2.6, 1.7), T: chipStack(G, 0, 1.7), B: chipStack(G, 2.6, 1.7) };
+  const LIM = { P: 2000, B: 2000, T: 500, PP: 500, BP: 500 };
+  const wood = mat(0x3a1d0e, .35, .3), gold = mat(0xffc83d, .25, .95), felt = mat(0x0a6a3f, .95);
+  const TZ = -1.4; // 테이블 직선 가장자리 z
+  const half = (r, h, y, m) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 64, 1, false, -Math.PI / 2, Math.PI), m); o.position.set(0, y, TZ); G.add(o); return o; };
+  half(7, .9, .45, mat(0x2a140a, .6));
+  half(7.35, .08, .06, gold);
+  half(6.75, .22, 1.0, felt);
+  const arc = new THREE.Mesh(new THREE.TorusGeometry(6.95, .24, 12, 64, Math.PI), wood); arc.rotation.set(-Math.PI / 2, 0, Math.PI); arc.position.set(0, 1.12, TZ); G.add(arc);
+  const arcG = new THREE.Mesh(new THREE.TorusGeometry(6.62, .04, 8, 64, Math.PI), gold); arcG.rotation.set(-Math.PI / 2, 0, Math.PI); arcG.position.set(0, 1.12, TZ); G.add(arcG);
+  box(G, 14.2, .3, .5, 0, 1.12, TZ - .1, wood);
+
+  // 펠트 장식 (카드 구역 / 베팅 칸)
+  const plane = (x, z, w, d, draw, y = 1.116) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({ map: canvasTex(Math.round(w * 128), Math.round(d * 128), draw), transparent: true, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); G.add(m); return m;
+  };
+  const rrect = (g, x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+  const area = (cx, color, name) => plane(cx, .35, 4.2, 2.2, (g, w, h) => {
+    g.strokeStyle = color; g.lineWidth = 6; rrect(g, 8, 8, w - 16, h - 16, 24); g.stroke();
+    g.fillStyle = color; g.globalAlpha = .55; g.font = `900 ${h * .17}px ${FONT}`; g.textAlign = 'center'; g.fillText(name, w / 2, h - 22); g.globalAlpha = 1;
+    g.strokeStyle = color + '66'; g.lineWidth = 3; for (let i = 0; i < 2; i++) rrect(g, w / 2 - w * .27 + i * w * .28 + (i ? 4 : 0), h * .14, w * .24, h * .56, 8), g.stroke();
+  });
+  area(-2.6, '#6db8ff', 'PLAYER'); area(2.6, '#ff7b8e', 'BANKER');
+  const spotPlane = (x, z, w, d, color, t1, t2) => plane(x, z, w, d, (g, cw, ch) => {
+    g.fillStyle = color + '33'; g.strokeStyle = color; g.lineWidth = 7; g.beginPath(); g.ellipse(cw / 2, ch / 2, cw / 2 - 8, ch / 2 - 8, 0, 0, 7); g.fill(); g.stroke();
+    g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `900 ${ch * .26}px ${FONT}`; g.fillText(t1, cw / 2, ch * .42); g.font = `700 ${ch * .17}px ${FONT}`; g.fillStyle = '#ffd24a'; g.fillText(t2, cw / 2, ch * .68);
+  });
+  const SP = { PP: [-4.4, 2.5, 1.7, 1.2, '#4aa3ff', 'P PAIR', '11 : 1'], P: [-2.3, 3.2, 3.0, 1.5, '#4aa3ff', 'PLAYER', '1 : 1'], T: [0, 3.55, 2.2, 1.3, '#2fd37c', 'TIE', '8 : 1'], B: [2.3, 3.2, 3.0, 1.5, '#ff5a6e', 'BANKER', '0.95 : 1'], BP: [4.4, 2.5, 1.7, 1.2, '#ff5a6e', 'B PAIR', '11 : 1'] };
+  const stacks = {};
+  for (const k in SP) { const [x, z, w, d, c, t1, t2] = SP[k]; spotPlane(x, z, w, d, c, t1, t2); stacks[k] = chipStack(G, x, z + .1); }
+  plane(0, 4.55, 6, .7, (g, w, h) => { g.fillStyle = '#ffd24acc'; g.font = `800 ${h * .5}px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('BACCARAT  ·  PAYS 8 TO 1 ON TIE', w / 2, h / 2); });
+  // 칩 트레이(딜러 앞)
+  box(G, 2.6, .12, .7, 0, 1.17, TZ + .6, mat(0x151515, .4, .6));
+  const trayChips = new THREE.Group(); G.add(trayChips);
+  [[1000, -1], [500, -.6], [100, -.2], [50, .2], [10, .6]].forEach(([v, x]) => { for (let i = 0; i < 7; i++) { const m = new THREE.Mesh(chipGeo, chipMats[v]); m.position.set(x, 1.27 + i * .062, TZ + .6); trayChips.add(m); } });
+
+  // 슈 + 버린 카드함
+  shoeMesh(G, 5.2, TZ + .5);
+  box(G, 1.1, .5, 1.6, -5.2, 1.4, TZ + .5, mat(0x222, .3, .6));
+  const SHOE = V(5.2, 2.2, TZ + .5);
+
+  // 딜러
+  const dealer = new THREE.Group(); dealer.position.set(0, 0, -3.2); G.add(dealer);
+  box(dealer, 1.5, 1.9, .8, 0, 1.8, 0, mat(0x101015, .6));
+  box(dealer, .55, 1.2, .02, 0, 2.15, .41, mat(0xf4f4f4, .5));
+  box(dealer, .22, .12, .03, 0, 2.7, .42, mat(0xd11f2f, .5)); box(dealer, .1, .1, .03, 0, 2.7, .43, mat(0xaa1020, .5));
+  const head = new THREE.Mesh(new THREE.SphereGeometry(.38, 20, 20), mat(0xf0c8a0, .7)); head.position.set(0, 3.2, 0); dealer.add(head);
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(.4, 20, 20, 0, Math.PI * 2, 0, Math.PI / 2), mat(0x1a1008, .8)); hair.position.set(0, 3.25, -.02); dealer.add(hair);
+  const armL = box(dealer, .3, 1.2, .3, -.95, 1.9, .2, mat(0x101015, .6)), armR = box(dealer, .3, 1.2, .3, .95, 1.9, .2, mat(0x101015, .6));
+  armL.rotation.x = -.9; armR.rotation.x = -.9; armL.position.set(-.95, 1.95, .55); armR.position.set(.95, 1.95, .55);
+  const nameTag = box(dealer, .4, .12, .02, -.4, 2.5, .41, gold);
+
+  // 안내 표지판 (MIN/MAX)
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.5), new THREE.MeshBasicMaterial({
+    map: canvasTex(384, 240, (g, w, h) => {
+      g.fillStyle = '#1a0d08'; g.fillRect(0, 0, w, h); g.strokeStyle = '#ffd24a'; g.lineWidth = 8; g.strokeRect(6, 6, w - 12, h - 12);
+      g.fillStyle = '#ffd24a'; g.textAlign = 'center'; g.font = `900 46px ${FONT}`; g.fillText('BACCARAT', w / 2, 62);
+      g.fillStyle = '#fff'; g.font = `700 30px ${FONT}`; g.fillText('MIN  10', w / 2, 112); g.fillText('MAX  2,000', w / 2, 152); g.font = `600 22px ${FONT}`; g.fillStyle = '#ffffffbb'; g.fillText('TIE · PAIR  MAX 500', w / 2, 200);
+    })
+  }));
+  sign.position.set(-5.2, 2.1, TZ - .4); G.add(sign); box(G, .1, 1, .1, -5.2, 1.3, TZ - .45, gold);
+
+  // 전광판 (구슬판 + 대로)
+  const boardCv = canvasTex(1024, 300, () => { });
+  const drawBoard = () => { drawRoads(boardCv.userCanvas.getContext('2d'), 1024, 300, hist); boardCv.needsUpdate = true; };
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 2.1), new THREE.MeshBasicMaterial({ map: boardCv })); board.position.set(0, 5.4, -4.4); G.add(board);
+  box(G, 7.6, 2.5, .15, 0, 5.4, -4.5, mat(0x1b1020, .4, .7)); box(G, .3, 4.6, .3, -3.3, 2.5, -4.5, gold); box(G, .3, 4.6, .3, 3.3, 2.5, -4.5, gold);
+
+  // 결과 배너
+  const bnCv = canvasTex(768, 192, () => { });
+  const banner = new THREE.Sprite(new THREE.SpriteMaterial({ map: bnCv, transparent: true, depthWrite: false, opacity: 0 })); banner.scale.set(6.4, 1.6, 1); banner.position.set(0, 3.1, 1.2); G.add(banner);
+  function showBanner(text, sub, color) {
+    const g = bnCv.userCanvas.getContext('2d'); g.clearRect(0, 0, 768, 192); g.fillStyle = '#000b'; rrect(g, 4, 4, 760, 184, 36); g.fill(); g.strokeStyle = color; g.lineWidth = 8; g.stroke();
+    g.textAlign = 'center'; g.fillStyle = color; g.font = `900 84px ${FONT}`; g.fillText(text, 384, 94); g.fillStyle = '#fff'; g.font = `700 40px ${FONT}`; g.fillText(sub, 384, 156); bnCv.needsUpdate = true;
+    banner.material.opacity = 1;
+  }
+
   const bets = new Bets(() => { if (!panel) return; sync(); for (const k in stacks) stacks[k].set(bets.m[k] || 0); });
-  const SHOE = V(5, 2.2, -1.7);
-  let shoe = newDeck(8), meshes = [], busy = false, panel; const hist = [];
+  bets.limit = k => LIM[k];
+  let shoe = [], meshes = [], busy = false, panel, burned = 0, newShoeNext = true; let hist = [];
   const cv = c => c.r === 'A' ? 1 : c.r === '10' || 'JQK'.includes(c.r) ? 0 : +c.r;
   const tot = h => h.reduce((a, c) => a + cv(c), 0) % 10;
-  const pos = (side, i) => V((side === 'P' ? -2.6 : 2.6) - 1.1 + i * 1.1, 1.13 + i * .01, -.75);
-  async function put(hand, side) {
-    if (shoe.length < 30) shoe = newDeck(8);
-    const c = shoe.pop(); hand.push(c); const m = makeCard(c); m.position.copy(SHOE); G.add(m); meshes.push(m);
-    await moveCard(m, pos(side, hand.length - 1), FACE_UP, .4); info(hand, side); return c;
+  const CX = { P: -2.6, B: 2.6 };
+  const pos = (side, i) => i < 2 ? V(CX[side] - .62 + i * 1.24, 1.13 + i * .01, .15) : V(CX[side], 1.14, 1.55);
+  const st = { P: [], B: [] };
+  function info() {
+    $('#bcI', panel).innerHTML = `<span class="dealerp"><span style="color:#6db8ff">PLAYER ${st.P.length ? tot(st.P) : '-'}</span> &nbsp;|&nbsp; <span style="color:#ff7b8e">BANKER ${st.B.length ? tot(st.B) : '-'}</span></span>`;
   }
-  const state2 = { P: [], B: [] };
-  function info(h, side) { state2[side] = h; $('#bcI', panel).innerHTML = `<span class="dealerp"><span style="color:#6db8ff">PLAYER ${state2.P.length ? tot(state2.P) : '-'}</span> &nbsp;|&nbsp; <span style="color:#ff7b8e">BANKER ${state2.B.length ? tot(state2.B) : '-'}</span></span>`; }
+  async function newShoe() {
+    shoe = newDeck(8); hist = []; drawBoard(); drawPanelRoads();
+    const first = shoe.pop(), n = cv(first) || 10; shoe.splice(shoe.length - n, n); burned = n + 1; newShoeNext = false;
+    toast(`🔀 새 슈 시작 — 첫 카드 ${first.r}${first.s} → ${n}장 번(burn)`);
+    await sleep(1400);
+  }
+  async function put(hand, side, up = true) {
+    const c = shoe.pop(); hand.push(c); const m = makeCard(c); m.position.copy(SHOE); G.add(m); meshes.push(m);
+    const i = hand.length - 1, third = i === 2;
+    await moveCard(m, pos(side, i), up ? FACE_UP : FACE_DN, third ? .5 : .4, third ? Math.PI / 2 : (Math.random() - .5) * .05);
+    if (up) { st[side] = hand; info(); } return m;
+  }
+  /** 스퀴즈: 카드를 살짝 들어 올려 모서리부터 천천히 확인한 뒤 뒤집기 */
+  async function squeeze(m, slow = 1) {
+    const y0 = m.position.y, z0 = m.position.z; sfx.card();
+    await tween(.8 * slow, k => { m.rotation.x = FACE_DN - k * 1.1; m.position.y = y0 + k * .25; m.position.z = z0 - k * .3; });
+    await sleep(350 * slow);
+    await tween(.45, k => { m.rotation.x = (FACE_DN - 1.1) + (FACE_UP - FACE_DN + 1.1) * k; m.position.y = y0 + .25 * (1 - k) + Math.sin(k * Math.PI) * .4; m.position.z = z0 - .3 * (1 - k); });
+  }
+  function bannerOff() { tween(.6, k => banner.material.opacity = 1 - k); }
   async function deal() {
     if (busy) return; if (!bets.total) return toast('칩을 먼저 놓아주세요', 'bad');
-    busy = true; bets.begin(); sync(); meshes.forEach(m => G.remove(m)); meshes = []; state2.P = []; state2.B = [];
+    busy = true; bets.begin(); sync(); meshes.forEach(m => G.remove(m)); meshes = []; st.P = []; st.B = []; banner.material.opacity = 0; info();
+    if (newShoeNext || shoe.length < 16) await newShoe();
     const P = [], B = [];
-    await put(P, 'P'); await put(B, 'B'); await put(P, 'P'); await put(B, 'B');
-    let pv = tot(P), bv = tot(B);
-    if (pv < 8 && bv < 8) {
+    // 딜러 순서: 플레이어 → 뱅커 → 플레이어 → 뱅커 (모두 뒷면)
+    const p1 = await put(P, 'P', false), b1 = await put(B, 'B', false), p2 = await put(P, 'P', false), b2 = await put(B, 'B', false);
+    hint('딜러가 카드를 오픈합니다…');
+    await sleep(400);
+    await squeeze(p1, .6); await squeeze(p2); st.P = P; info();
+    await sleep(300);
+    await squeeze(b1, .6); await squeeze(b2); st.B = B; info();
+    let pv = tot(P), bv = tot(B), natural = pv >= 8 || bv >= 8;
+    if (natural) { toast(`내추럴 ${Math.max(pv, bv)}!`); await sleep(700); }
+    else {
+      await sleep(500);
       let p3 = null;
-      if (pv <= 5) p3 = await put(P, 'P');
-      bv = tot(B);
-      let bd;
+      if (pv <= 5) { toast('플레이어 3번째 카드'); p3 = await put(P, 'P'); await sleep(300); }
+      bv = tot(B); let bd;
       if (p3 === null) bd = bv <= 5;
-      else {
-        const x = cv(p3);
-        bd = bv <= 2 ? true : bv === 3 ? x !== 8 : bv === 4 ? x >= 2 && x <= 7 : bv === 5 ? x >= 4 && x <= 7 : bv === 6 ? x === 6 || x === 7 : false;
-      }
-      if (bd) await put(B, 'B');
+      else { const x = cv(p3); bd = bv <= 2 ? true : bv === 3 ? x !== 8 : bv === 4 ? x >= 2 && x <= 7 : bv === 5 ? x >= 4 && x <= 7 : bv === 6 ? x === 6 || x === 7 : false; }
+      if (bd) { toast('뱅커 3번째 카드'); await put(B, 'B'); await sleep(300); }
     }
     pv = tot(P); bv = tot(B);
-    const win = pv > bv ? 'P' : bv > pv ? 'B' : 'T';
-    hist.unshift(win); if (hist.length > 18) hist.pop(); drawHist();
+    const win = pv > bv ? 'P' : bv > pv ? 'B' : 'T', pp = P[0].r === P[1].r, bp = B[0].r === B[1].r;
+    hist.push({ w: win, pp, bp }); drawBoard(); drawPanelRoads();
+    const NAME = { P: 'PLAYER', B: 'BANKER', T: 'TIE' }, COL = { P: '#6db8ff', B: '#ff7b8e', T: '#7dffa8' };
+    showBanner(win === 'T' ? 'TIE' : NAME[win] + ' WIN', `${pv} : ${bv}${natural ? '  NATURAL' : ''}${pp ? '  · P PAIR' : ''}${bp ? '  · B PAIR' : ''}`, COL[win]);
     let ret = 0; const tb = bets.total;
     for (const [k, amt] of Object.entries(bets.m)) {
-      if (win === 'T') ret += k === 'T' ? amt * 9 : k === 'P' || k === 'B' ? amt : 0;
-      else if (k === win) ret += k === 'P' ? amt * 2 : amt * 1.95;
+      if (k === 'P') ret += win === 'P' ? amt * 2 : win === 'T' ? amt : 0;
+      else if (k === 'B') ret += win === 'B' ? amt * 1.95 : win === 'T' ? amt : 0;
+      else if (k === 'T') ret += win === 'T' ? amt * 9 : 0;
+      else if (k === 'PP') ret += pp ? amt * 12 : 0;
+      else if (k === 'BP') ret += bp ? amt * 12 : 0;
     }
-    panel.querySelectorAll('[data-k]').forEach(el => { if (el.dataset.k === win) el.classList.add('hit'); });
+    const wins = new Set([win, ...(pp ? ['PP'] : []), ...(bp ? ['BP'] : [])]);
+    panel.querySelectorAll('[data-k]').forEach(el => { if (wins.has(el.dataset.k)) el.classList.add('hit'); });
     await sleep(300);
-    settle(ret, tb, `${win === 'P' ? 'PLAYER' : win === 'B' ? 'BANKER' : 'TIE'} 승! (${pv} : ${bv})`, G.localToWorld(V(0, 1.5, 0)));
-    await sleep(1800);
-    panel.querySelectorAll('.hit').forEach(el => el.classList.remove('hit'));
+    settle(ret, tb, `${NAME[win]} 승! (${pv}:${bv})`, G.localToWorld(V(0, 1.5, 2)));
+    if (shoe.length < 16) { newShoeNext = true; toast('✂️ 컷카드 등장 — 다음 판은 새 슈로 시작합니다'); }
+    await sleep(2200);
+    bannerOff(); panel.querySelectorAll('.hit').forEach(el => el.classList.remove('hit'));
     bets.end(); busy = false; sync();
   }
-  function drawHist() {
-    const h = $('#bcH', panel); if (!h) return; const c = { P: '#2f7fe0', B: '#d6362f', T: '#1fb866' };
-    h.innerHTML = hist.map(x => `<i style="background:${c[x]}">${x}</i>`).join('');
+  function drawPanelRoads() {
+    if (!panel) return; const c = $('#roads', panel); if (c) drawRoads(c.getContext('2d'), c.width, c.height, hist);
+    const s = $('#bcS', panel); if (s) { const n = x => hist.filter(h => h.w === x).length; s.innerHTML = `<span style="color:#6db8ff">PLAYER ${n('P')}</span> · <span style="color:#ff7b8e">BANKER ${n('B')}</span> · <span style="color:#7dffa8">TIE ${n('T')}</span> · 남은 카드 ${shoe.length || '—'}`; }
   }
   function sync() {
-    if (!panel) return; panel.querySelectorAll('button').forEach(b => { if (b.dataset.act) b.disabled = busy; }); bets.paint(panel);
-    hint(busy ? '카드가 자동으로 나눠집니다…' : bets.total ? `총 ${fmt(bets.total)} 베팅 중 — DEAL을 누르세요` : 'PLAYER·BANKER·TIE 중 이길 것 같은 쪽을 눌러 베팅하세요');
+    if (!panel) return; panel.querySelectorAll('button').forEach(b => { if (b.dataset.act) b.disabled = busy; }); bets.paint(panel); drawPanelRoads();
+    hint(busy ? '딜러가 카드를 오픈합니다… (자동 진행)' : bets.total ? `총 ${fmt(bets.total)} 베팅 — 모두 걸었으면 DEAL! 카드는 정식 룰대로 자동 진행됩니다` : 'PLAYER / BANKER / TIE 중 맞힐 곳을 눌러 베팅하세요 (페어는 선택)');
   }
-  const view = viewOf(G, [0, 5.6, 7.2], [0, .6, -.2]);
+  const view = viewOf(G, [0, 11.5, 8.6], [0, 1.2, 0.2]);
+  const sp = (k, a, b, style) => spot(k, `${a}<br><small>${b}</small>`, '', style);
   return {
-    id: 'baccarat', name: '바카라', icon: '♦️', desc: '플레이어 · 뱅커 · 타이', view, group: G,
+    id: 'baccarat', name: '바카라', icon: '♦️', desc: '실제 카지노 방식 · 구슬판/대로 · 페어', view, group: G,
     html: () => `<div class="title"><b>♦️ 바카라</b><span class="info" id="bcI"></span></div>
-      <div class="row" style="gap:14px">
-        ${spot('P', 'PLAYER<br><small>1 : 1</small>', '', 'background:#1d4f9a;min-width:140px;padding:12px')}
-        ${spot('T', 'TIE<br><small>8 : 1</small>', '', 'background:#127a48;min-width:110px;padding:12px')}
-        ${spot('B', 'BANKER<br><small>0.95 : 1</small>', '', 'background:#a3202f;min-width:140px;padding:12px')}
+      <div class="row" style="gap:8px;flex-wrap:nowrap;align-items:stretch">
+        ${sp('PP', 'P PAIR', '11 : 1', 'background:#17407a;flex:1;max-width:120px;padding:10px 4px')}
+        ${sp('P', 'PLAYER', '1 : 1', 'background:#1d4f9a;flex:2;padding:12px')}
+        ${sp('T', 'TIE', '8 : 1', 'background:#127a48;flex:1.2;max-width:150px;padding:12px')}
+        ${sp('B', 'BANKER', '0.95 : 1', 'background:#a3202f;flex:2;padding:12px')}
+        ${sp('BP', 'B PAIR', '11 : 1', 'background:#7a1824;flex:1;max-width:120px;padding:10px 4px')}
       </div>
       <div class="row"><button class="primary" data-act="deal" style="min-width:120px;font-size:17px">DEAL</button>${betBtns()}<span class="info">총 베팅 <b id="tot" style="color:var(--gold)">0</b></span></div>
-      <div class="hist" id="bcH"></div>
-      <div class="pay">카드 합계 끝자리(9에 가까울수록 승) · A=1, 10/J/Q/K=0 · 타이 시 플레이어/뱅커 베팅은 반환 · 3번째 카드는 정식 룰 자동 적용</div>`,
-    bind(p) { panel = p; drawHist(); sync(); for (const k in stacks) stacks[k].set(bets.m[k] || 0); info([], 'P'); },
+      <div class="info" id="bcS" style="font-size:13px"></div>
+      <canvas id="roads" width="1000" height="108" style="width:100%;border-radius:8px;margin-top:4px"></canvas>
+      <div class="pay">MIN 10 · MAX 2,000 (TIE/페어 500) · 뱅커 승리 시 5% 커미션(0.95배) · 8장 슈, 컷카드 후 새 슈 · ●빨강=뱅커 페어 ●파랑=플레이어 페어</div>`,
+    bind(p) { panel = p; for (const k in stacks) stacks[k].set(bets.m[k] || 0); st.P = []; st.B = []; sync(); info(); },
     act(a, el) { if (a === 'deal') deal(); else if (a === 'spot') bets.add(el.dataset.k); else if (a === 'undo') bets.undo(); else if (a === 'clear') bets.clear(); else if (a === 'rebet') bets.rebet(); },
     pending: () => busy ? 0 : bets.total, busy: () => busy,
-    update() { }, clearBets() { bets.clear(); },
+    update(dt, t) { head.position.y = 3.2 + Math.sin(t * 1.6) * .015; if (!busy) { armL.rotation.x = -.9 + Math.sin(t * 1.2) * .03; } }, clearBets() { bets.clear(); },
   };
 }
 
@@ -939,9 +1083,9 @@ const HELP = {
   roulette: { lv: '⭐ 쉬움', goal: '공이 어느 칸에 들어갈지 맞히세요. 여러 칸에 동시에 걸어도 돼요.',
     steps: ['아래 동그란 칩을 눌러 한 번에 놓을 금액을 고르세요.', '숫자 칸이나 빨강/검정, 홀수/짝수 칸을 눌러 칩을 올려놓으세요.', 'SPIN을 누르면 공이 굴러가고, 맞힌 칸의 배당을 받아요.'],
     tip: '쉬운 베팅: 빨강/검정, 홀수/짝수, 1-18/19-36 은 맞히면 2배(확률 약 49%)예요.<br>숫자 하나는 36배지만 확률이 낮아요. 초록 0이 나오면 숫자 베팅 외에는 모두 져요.' },
-  baccarat: { lv: '⭐ 쉬움', goal: 'PLAYER와 BANKER 중 카드 합계(끝자리)가 9에 더 가까운 쪽을 맞히세요.',
-    steps: ['칩을 고른 뒤 PLAYER, BANKER, TIE 중 하나를 눌러 베팅하세요.', 'DEAL을 누르면 카드가 자동으로 나눠져요. (내가 할 일은 없어요)', '맞힌 쪽의 배당을 받아요.'],
-    tip: '합계는 끝자리만 봐요 (7+8=15 → 5점). A=1점, 10·J·Q·K=0점이에요.<br>PLAYER 1배, BANKER 0.95배(수수료 5%), TIE 8배. 비기면 PLAYER/BANKER 베팅은 돌려받아요.' },
+  baccarat: { lv: '⭐ 쉬움', goal: '실제 카지노와 같은 방식! PLAYER와 BANKER 중 카드 합계(끝자리)가 9에 더 가까운 쪽을 맞히세요.',
+    steps: ['칩을 고른 뒤 PLAYER, BANKER, TIE 중 하나를 눌러 베팅하세요. (P PAIR / B PAIR는 선택 사이드벳)', 'DEAL을 누르면 딜러가 카드를 나눠주고, 한 장씩 천천히 열어 보여줘요. 3번째 카드는 정식 룰로 자동 진행돼요.', '맞힌 곳의 배당을 받고, 결과는 전광판의 구슬판·대로에 기록돼요.'],
+    tip: '합계는 끝자리만 봐요 (7+8=15 → 5점). A=1점, 10·J·Q·K=0점이고 8~9점은 내추럴(즉시 승부)이에요.<br>PLAYER 1배 · BANKER 0.95배(5% 커미션) · TIE 8배 · 페어(첫 두 장이 같은 숫자) 11배. 타이가 나오면 PLAYER/BANKER 베팅은 돌려받아요.<br>전광판: 구슬판은 결과를 순서대로, 대로는 같은 쪽이 이어지면 아래로 쌓여요. 8장 슈를 쓰고, 컷카드가 나오면 새로 섞어요.' },
   poker: { lv: '⭐⭐ 보통', goal: '카드 5장으로 족보를 만드세요. 잭(J) 이상 원페어부터 돈을 받아요.',
     steps: ['베팅액을 정하고 DEAL을 눌러 카드 5장을 받으세요.', '남기고 싶은 카드를 HOLD 버튼(또는 카드를 직접 클릭)으로 선택하세요.', 'DRAW를 누르면 HOLD 안 한 카드만 새로 바뀌고 족보가 계산돼요.'],
     tip: '같은 숫자가 있는 카드, 같은 무늬 5장, 이어지는 숫자는 남기는 게 좋아요.<br>족보 높은 순: 로열플러시 800배 · 스플 50 · 포카드 25 · 풀하우스 9 · 플러시 6 · 스트레이트 4 · 트리플 3 · 투페어 2 · 잭 이상 원페어 1배' },
